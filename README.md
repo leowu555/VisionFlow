@@ -7,7 +7,7 @@ frames, and distributes that work across processes and machines with low latency
 The project is built incrementally, one phase at a time. Each phase leaves the repository in a
 working state.
 
-## Current status: Phase 1 — video ingestion foundation
+## Phase 1 — video ingestion foundation
 
 Phase 1 implements a single-process, single-threaded video viewer:
 
@@ -20,7 +20,45 @@ Phase 1 implements a single-process, single-threaded video viewer:
   increasing ID and a timestamp, displays it with an overlay of the frame ID and observed FPS, and
   exits cleanly on `q`, on window close, or at end of stream.
 
-There is no machine learning, networking, threading, or persistence yet.
+## Phase 2 — thread-safe bounded queue
+
+`visionflow::BoundedQueue<T>` (`include/visionflow/bounded_queue.hpp`) is a header-only,
+fixed-capacity FIFO queue built on `std::mutex`, `std::condition_variable`, and `std::deque`. It is
+the building block later phases will use to hand `Frame` objects from a capture thread to
+processing threads. The video pipeline itself is still single-threaded; nothing uses the queue yet.
+
+**Why bounded?** Capture and processing run at different speeds. An unbounded queue between them
+grows without limit whenever processing falls behind, consuming memory and adding latency.
+
+**Backpressure** is what a bounded queue gives you instead: when the queue is full, `push()` blocks
+the producer until a consumer makes room, so a slow consumer automatically slows the producer down.
+`try_push()` is the non-blocking alternative: it returns `false` when full, letting the caller
+decide what to do (for example, drop the frame).
+
+**`close()`** marks the end of the stream. After it is called:
+
+- no new items are accepted (`push()` and `try_push()` return `false`);
+- every thread blocked in `push()` or `pop()` wakes up;
+- items already queued can still be drained, and `pop()` returns `false` only once the queue is
+  both closed and empty.
+
+Calling `close()` more than once is harmless.
+
+Items are moved in and out, so move-only types and `Frame` (whose `cv::Mat` pixels are shared, not
+copied) work without deep copies. If a push fails, the item passed to it is discarded.
+
+### Running the tests
+
+```sh
+cmake -S . -B build
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Or run the test binary directly for per-test output: `./build/tests/test_bounded_queue`.
+Tests are built by default; pass `-DVISIONFLOW_BUILD_TESTS=OFF` to skip them.
+
+There is no machine learning, networking, or persistence yet.
 
 ## Project layout
 
@@ -28,7 +66,7 @@ There is no machine learning, networking, threading, or persistence yet.
 CMakeLists.txt
 include/visionflow/   Public headers
 src/                  Library sources and the application entry point
-tests/                Reserved for tests (empty in Phase 1)
+tests/                Test executables (registered with CTest)
 assets/               Local sample videos (video files here are git-ignored)
 ```
 
@@ -58,7 +96,7 @@ cmake --build build
 ```
 
 If CMake cannot find OpenCV, point it at the install, e.g.
-`-DOpenCV_DIR=$(brew --prefix opencv)/lib/cmake/opencv4`.
+`-DOpenCV_DIR=$(brew --prefix opencv)/lib/cmake/opencv5` (or `opencv4` for OpenCV 4.x).
 
 ## Run
 

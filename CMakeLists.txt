@@ -15,7 +15,17 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+option(VISIONFLOW_BUILD_TESTS "Build VisionFlow tests" ON)
+
 find_package(OpenCV REQUIRED COMPONENTS core imgproc videoio highgui)
+
+function(visionflow_enable_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconversion)
+    endif()
+endfunction()
 
 # Core library: everything except the application entry point, so later
 # phases (and tests) can link against it without pulling in main().
@@ -31,12 +41,7 @@ target_link_libraries(visionflow_core
         ${OpenCV_LIBS}
 )
 target_include_directories(visionflow_core SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS})
-
-if(MSVC)
-    target_compile_options(visionflow_core PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(visionflow_core PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconversion)
-endif()
+visionflow_enable_warnings(visionflow_core)
 
 add_executable(visionflow
     src/main.cpp
@@ -45,9 +50,9 @@ target_link_libraries(visionflow
     PRIVATE
         visionflow_core
 )
+visionflow_enable_warnings(visionflow)
 
-if(MSVC)
-    target_compile_options(visionflow PRIVATE /W4 /permissive-)
-else()
-    target_compile_options(visionflow PRIVATE -Wall -Wextra -Wpedantic -Wshadow -Wconversion)
+if(VISIONFLOW_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
 endif()
